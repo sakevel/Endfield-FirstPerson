@@ -1,0 +1,88 @@
+return function(P)
+    local M={wanted=false, settings=nil, lease=nil, failed=false, turning=false}
+    local function clamp(x,a,b) return math.max(a,math.min(b,x)) end
+    local function angle(x) return (x+180)%360-180 end
+    local function number(v,key,lo,hi)
+        local x=tonumber(v[key]);assert(x and x==x and x>=lo and x<=hi,'invalid '..key);return x
+    end
+    local function bool(v,key) assert(v[key]=='true' or v[key]=='false','invalid '..key);return v[key]=='true' end
+    function M.configure(v)
+        local c={}
+        for _,k in ipairs({'enabled','height_variation','head_translation','head_rotation','head_tilt','hide_self','show_body',
+            'fun_effects','tangtang_patch','endmin_scan','dapan_sunglasses'}) do c[k]=bool(v,k) end
+        for _,d in ipairs({{'fov',40,120},{'sensitivity',.2,8},{'head_strength',0,1},{'eye_offset',-.2,.3},
+            {'forward_offset',0,.3},{'smoothing',0,.4},{'turn_speed',90,1080},{'scan_period',1,10},{'sunglasses_darkness',.05,.75}}) do
+            c[d[1]]=number(v,d[1],d[2],d[3])
+        end
+        M.settings=c;M.failed=false
+        if not c.enabled then M.wanted=false;M.release() end
+    end
+    function M.release()
+        if not M.lease then return true end
+        if P.release(M.lease) then M.lease=nil;M.turning=false;return true end
+        return false
+    end
+    function M.toggle()
+        if not M.settings or not M.settings.enabled then return end
+        M.wanted=not M.wanted;M.failed=false
+        if not M.wanted then M.release() end
+    end
+    function M.effect(id)
+        local c=M.settings
+        if not c.fun_effects then return 'none' end
+        if id=='chr_0027_tangtang' and c.tangtang_patch then return 'eyepatch' end
+        if (id=='chr_0002_endminm' or id=='chr_0003_endminf') and c.endmin_scan then return 'scan' end
+        if id=='chr_0018_dapan' and c.dapan_sunglasses then return 'sunglasses' end
+        return 'none'
+    end
+    function M.look(x,y)
+        if not M.lease or M.lease.releasing then return false end
+        assert(x==x and y==y and math.abs(x)<10000 and math.abs(y)<10000,'invalid camera input')
+        M.yaw=angle(M.yaw+x*M.settings.sensitivity)
+        M.pitch=clamp(M.pitch-y*M.settings.sensitivity,-80,80)
+        return true
+    end
+    function M.frame(dt)
+        if not M.settings then return end
+        dt=clamp(tonumber(dt) or 0,0,.1)
+        if P.pressed() then M.toggle() end
+        if M.lease and M.lease.releasing then if not M.release() then return end end
+        local ch=P.character()
+        local allowed=ch and M.settings.enabled and M.wanted and not M.failed and P.allowed(ch)
+        if M.lease and (not allowed or M.lease.character~=ch or not P.ownsCamera(M.lease)) then
+            if not M.release() then return end
+        end
+        if not allowed then return end
+        if not M.lease then
+            local l=P.capture(ch)
+            M.lease=l
+            M.yaw,M.pitch=l.yaw,l.pitch
+            M.turning=false
+            P.install(l,M.settings)
+            if M.lease~=l or l.releasing then P.release(l);return end
+        end
+        local l=M.lease
+        local body=P.bodyYaw(l)
+        local delta=angle(M.yaw-body)
+        if math.abs(delta)>90 then M.turning=true end
+        if M.turning and P.canTurn(l) then
+            local step=clamp(delta,-M.settings.turn_speed*dt,M.settings.turn_speed*dt)
+            P.turn(l,angle(body+step))
+            if math.abs(delta-step)<1 then M.turning=false end
+        end
+        P.pose(l,M.yaw,M.pitch,M.settings,dt)
+        P.effects(l,M.effect(P.id(l)),M.settings,dt)
+    end
+    function M.fault(err)
+        M.failed=true;M.wanted=false
+        if M.lease then M.lease.releasing=true;pcall(M.release) end
+        P.report('camera_failed',err)
+    end
+    M.angle=angle
+    function M.eyepatchAlpha(x,y,aspect)
+        local d=math.sqrt((x+.12)^2+((y-.5)/aspect)^2)
+        local t=clamp((d-.43)/.17,0,1)
+        return 1-t*t*(3-2*t)
+    end
+    return M
+end

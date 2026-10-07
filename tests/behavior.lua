@@ -1,0 +1,52 @@
+local c={};for k,v in pairs(defaults) do c[k]=v end
+local ch={id='chr_0027_tangtang',yaw=0}
+local allowed,current,failInstall,failCleanup=true,nil,false,false
+local count={capture=0,install=0,release=0,turn=0,pose=0,effects=0}
+local P={pressed=function() return false end,character=function() return ch end,
+    allowed=function() return allowed end,ownsCamera=function(l) return current==l end,
+    capture=function(character) count.capture=count.capture+1;return {character=character,yaw=0,pitch=0} end,
+    install=function(l) count.install=count.install+1;current=l;if failInstall then error('install failure') end end,
+    release=function(l) count.release=count.release+1;l.releasing=true;if failCleanup then return false end;if current==l then current=nil end;return true end,
+    bodyYaw=function(l) return l.character.yaw end,canTurn=function() return not blockTurn end,
+    turn=function(l,yaw) l.character.yaw=yaw;count.turn=count.turn+1 end,
+    pose=function(l,y,p,c,dt) count.pose=count.pose+1;lastPose={y=y,p=p,fov=c.fov} end,
+    effects=function(l,e,c,dt) count.effects=count.effects+1;lastEffect=e end,
+    id=function(l) return l.character.id end,report=function() count.report=(count.report or 0)+1 end}
+local m=Factory(P);m.configure(c);m.frame(.016);assert(not m.lease)
+m.toggle();m.frame(.016);assert(m.lease and count.install==1 and lastPose.fov==85)
+m.look(44,0);m.frame(.016);assert(count.turn==0,'88 degrees does not turn')
+m.look(2,0);m.frame(.016);assert(count.turn==1 and ch.yaw>0,'past 90 turns native body')
+for i=1,90 do m.frame(1/60) end
+assert(math.abs(m.angle(m.yaw-ch.yaw))<1 and not m.turning)
+m.look(0,100);assert(m.pitch==-80);m.look(0,-100);assert(m.pitch==80)
+assert(m.angle(359)==-1 and m.angle(-359)==1)
+c.fov='110';m.configure(c);m.frame(.016);assert(lastPose.fov==110 and count.install==1,'hot apply no camera recreation')
+c.fun_effects='true';m.configure(c);m.frame(.016);assert(lastEffect=='eyepatch')
+for _,v in ipairs({{'chr_0002_endminm','scan'},{'chr_0003_endminf','scan'},{'chr_0018_dapan','sunglasses'},{'chr_0005_chen','none'}}) do
+    ch.id=v[1];m.frame(.016);assert(lastEffect==v[2])
+end
+c.endmin_scan='false';m.configure(c);assert(m.effect('chr_0002_endminm')=='none')
+c.fun_effects='false';m.configure(c);assert(m.effect('chr_0027_tangtang')=='none')
+allowed=false;m.frame(.016);assert(not m.lease and not current and m.wanted,'UI/cinematic suspends but remembers choice')
+allowed=true;m.frame(.016);assert(m.lease and count.install==2)
+local previous=m.lease;ch={id='chr_0018_dapan',yaw=180};m.frame(.016);assert(m.lease~=previous and count.install==3,'character switch recaptures own proportions')
+current='foreign';m.frame(.016);assert(m.lease and m.lease~=previous,'mock permits reinstall after foreign release')
+-- Real adapter allowed() disallows entering over a foreign camera. This branch simulates it separately.
+current='foreign';allowed=false;m.frame(.016);assert(not m.lease and current=='foreign')
+allowed=true;m.frame(.016);m.toggle();assert(not m.lease and not m.wanted)
+m.toggle();failInstall=true
+local ok,err=pcall(m.frame,.016);assert(not ok and m.lease,'partial lease retained before install failure')
+m.fault(err);assert(not m.lease and m.failed and not m.wanted)
+failInstall=false;m.toggle();m.frame(.016);assert(m.lease)
+failCleanup=true;m.toggle();assert(m.lease and m.lease.releasing,'failed cleanup tracked')
+m.frame(.016);assert(m.lease);failCleanup=false;m.frame(.016);assert(not m.lease)
+m.toggle();m.frame(.016);c.enabled='false';m.configure(c);assert(not m.lease and not m.wanted)
+local bad={};for k,v in pairs(c) do bad[k]=v end;bad.fov='nan';assert(not pcall(m.configure,bad));assert(m.settings.fov==110,'invalid config atomic')
+print('PASS state machine: angle threshold/wrap, native turn, hot config, effects, suspensions, recapture, partial-failure cleanup')
+for _,aspect in ipairs({4/3,16/9,21/9}) do
+    assert(m.eyepatchAlpha(0,.5,aspect)==1 and m.eyepatchAlpha(1,.5,aspect)==0)
+    local a=m.eyepatchAlpha(.4,.5,aspect);assert(a>0 and a<1)
+    assert(m.eyepatchAlpha(.4,0,aspect)<a,'circular rather than vertical border')
+    for x=0,100 do local v=m.eyepatchAlpha(x/100,.15,aspect);assert(v>=0 and v<=1) end
+end
+print('PASS soft circular eyepatch alpha and 4:3/16:9/21:9 aspect math')
