@@ -14,6 +14,19 @@ return function(P)
             {'forward_offset',0,.3},{'smoothing',0,.4},{'turn_speed',90,1080},{'scan_period',1,10},{'sunglasses_darkness',.05,.75}}) do
             c[d[1]]=number(v,d[1],d[2],d[3])
         end
+        -- Defaults keep settings saved by older versions compatible.
+        c.turn_threshold=v.turn_threshold==nil and 90 or number(v,'turn_threshold',0,180)
+        if v.native_body_turn==nil then c.native_body_turn=false else c.native_body_turn=bool(v,'native_body_turn') end
+        if v.head_look_binding==nil then c.head_look_binding=false else c.head_look_binding=bool(v,'head_look_binding') end
+        if v.turn_in_place==nil then c.turn_in_place=true else c.turn_in_place=bool(v,'turn_in_place') end
+        if M.settings and (M.settings.native_body_turn~=c.native_body_turn or M.settings.turn_threshold~=c.turn_threshold or
+            M.settings.turn_in_place~=c.turn_in_place) then
+            if M.lease and P.stopTurn then P.stopTurn(M.lease);M.lease.nativeTurnUnavailable=nil end
+            M.turning=false
+        end
+        if M.settings and M.settings.head_look_binding~=c.head_look_binding and M.lease and P.resetHeadBinding then
+            P.resetHeadBinding(M.lease)
+        end
         M.settings=c;M.failed=false
         if not c.enabled then M.wanted=false;M.release() end
     end
@@ -64,12 +77,17 @@ return function(P)
         local l=M.lease
         local body=P.bodyYaw(l)
         local delta=angle(M.yaw-body)
-        if math.abs(delta)>90 then M.turning=true end
-        if M.turning and P.canTurn(l) then
+        if math.abs(delta)>M.settings.turn_threshold then M.turning=true end
+        if M.turning and math.abs(delta)<=1 then M.turning=false end
+        if M.turning and P.canTurn(l) and dt>0 then
             local step=clamp(delta,-M.settings.turn_speed*dt,M.settings.turn_speed*dt)
-            P.turn(l,angle(body+step))
-            if math.abs(delta-step)<1 then M.turning=false end
-        end
+            -- Native rotation is asynchronous: completion uses the measured body yaw,
+            -- never the projected direct-rotation step.
+            local accepted=P.turn(l,angle(body+step),M.settings,M.yaw)
+            if accepted==false then M.turning=false
+            elseif not M.settings.native_body_turn and math.abs(delta-step)<1 then M.turning=false end
+        elseif P.stopTurn then P.stopTurn(l) end
+        if not M.turning and P.stopTurn then P.stopTurn(l) end
         P.pose(l,M.yaw,M.pitch,M.settings,dt)
         P.effects(l,M.effect(P.id(l)),M.settings,dt)
     end

@@ -23,15 +23,21 @@
 
 ---
 
-## 2. 骨骼跟随与平滑转身
+## 2. 骨骼跟随与转身控制
 
-### 2.1 头部骨骼与相对姿态推导
-- 优先从 `CharacterAnimCom.grounderIK.ik.references.head` 获取头部 Transform，回退方案使用 `Animator.GetBoneTransform(HumanBodyBones.Head)`。
-- 姿态推导将头部世界坐标旋转转换为相对角色根节点的局部变换，支持独立叠加俯仰、水平转动与侧倾，并通过指数衰减平滑位移过渡。
+### 2.1 头颈骨骼联动与真实眼位绑定
+- 优先从 `CharacterAnimCom.grounderIK.ik.references.head` 获取头部 Transform，回退方案使用 `Animator.GetBoneTransform(HumanBodyBones.Head)`，并从 `HumanBodyBones.Neck` 获取颈部骨骼。
+- 开启头颈联动时：
+  - 颈部承担视角俯仰与偏航的部分旋转，头部补足剩余朝向，并对骨骼扭转设置横向安全限幅；
+  - 镜头绑定至头部骨骼，眼位沿颈部关节真实弧线运动，在 TailTick 阶段更新骨骼姿势，逐帧还原避免旋转累积。
 
-### 2.2 身体朝向与自动转身
+### 2.2 身体朝向与自动平滑转身
 - 实时计算相机视线偏航角与角色根节点朝向的相对夹角。
-- 当夹角绝对值超过 90° 时启动平滑转身状态机，按配置的角速度通过 `RootComponent.rotation` 驱动角色躯干朝向视线，恢复合理姿态。
+- 当夹角绝对值超过 `turn_threshold`（默认 90°，范围 0°~180°）时启动平滑转身状态机，按配置的角速度通过角色旋转驱动躯干朝向视线。
+
+### 2.3 原生迈步转身动作接入
+- 支持通过 `CharacterTurnStartMove` 触发游戏原生的起步与迈步转身动画曲线，由动画驱动身体转向。
+- 提供「原生转身保持原地」选项：通过 `MovementComponent.AddRootMotionModifier` 临时缩放动画位移，在保留脚步动画与转身效果的同时避免位置漂移，并在动作结束或受到移动输入打断时安全移除修改器。
 
 ---
 

@@ -50,3 +50,52 @@ for _,aspect in ipairs({4/3,16/9,21/9}) do
     for x=0,100 do local v=m.eyepatchAlpha(x/100,.15,aspect);assert(v>=0 and v<=1) end
 end
 print('PASS soft circular eyepatch alpha and 4:3/16:9/21:9 aspect math')
+
+-- Configurable thresholds, old saved configs, and asynchronous native completion.
+local cfg={};for k,v in pairs(defaults) do cfg[k]=v end
+local body={id='test',yaw=0};local request,stops,requests,direct= nil,0,0,0
+local port={};for k,v in pairs(P) do port[k]=v end
+port.character=function()return body end
+port.capture=function(ch)return {character=ch,yaw=ch.yaw,pitch=0} end
+port.install=function(l)current=l end
+port.turn=function(l,yaw,c,target)
+    if c.native_body_turn then request=target;requests=requests+1;return not rejectNative end
+    body.yaw=yaw;direct=direct+1;return true
+end
+port.stopTurn=function()if request then stops=stops+1;request=nil end end
+local t=Factory(port);cfg.turn_threshold='30';t.configure(cfg);t.toggle();t.frame(.016)
+t.look(15,0);t.frame(.016);assert(direct==0,'exact threshold does not trigger')
+t.look(.5,0);t.frame(.016);assert(direct==1,'configurable low threshold')
+for i=1,60 do t.frame(.016)end
+cfg.turn_threshold='120';t.configure(cfg);t.yaw=t.angle(body.yaw+119);t.frame(.016)
+assert(not t.turning);t.yaw=t.angle(body.yaw+121);t.frame(.016);assert(t.turning)
+for i=1,60 do t.frame(.016)end
+cfg.turn_threshold='180';t.configure(cfg);t.yaw=t.angle(body.yaw+180);local previous=direct;t.frame(.016)
+assert(not t.turning and direct==previous,'180 disables automatic rotation')
+cfg.turn_threshold='0';t.configure(cfg);t.yaw=t.angle(body.yaw+5);t.frame(.016);assert(direct>previous)
+for i=1,60 do t.frame(.016)end
+cfg.turn_threshold='30';cfg.native_body_turn='true';t.configure(cfg)
+body.yaw=170;t.yaw=-159;t.frame(.016)
+assert(request==-159 and requests==1 and t.turning and body.yaw==170,'native path wraps and waits for actual yaw')
+body.yaw=-160;t.frame(.016);assert(not t.turning and not request and stops==1,'native completion reads actual body')
+t.yaw=-100;t.frame(.016);assert(request==-100)
+blockTurn=true;t.frame(.016);assert(not request and stops==2,'unsafe state cancels own turn');blockTurn=false
+t.frame(.016);assert(request==-100,'can resume after native gate')
+cfg.native_body_turn='false';t.configure(cfg);assert(not request and stops==3,'hot mode switch cancels native request')
+t.frame(.016);assert(direct>previous)
+for i=1,60 do t.frame(.016)end
+cfg.native_body_turn='true';t.configure(cfg);t.yaw=t.angle(body.yaw+50);t.frame(.016)
+t.toggle();assert(not t.lease,'lease release on disable') -- production adapter cancels the handle in release().
+for _,bad in ipairs({'-1','181','nan','not-a-number'}) do
+    cfg.turn_threshold=bad;assert(not pcall(t.configure,cfg));assert(t.settings.turn_threshold==30,'invalid threshold remains atomic')
+end
+cfg.turn_threshold=nil;cfg.native_body_turn=nil;cfg.turn_in_place=nil;t.configure(cfg)
+assert(t.settings.turn_threshold==90 and not t.settings.native_body_turn and t.settings.turn_in_place,'legacy config gets defaults')
+cfg.native_body_turn='invalid';assert(not pcall(t.configure,cfg))
+print('PASS configurable 0/30/120/180 thresholds, wrap, legacy defaults, native async completion, locks and hot mode switch')
+
+cfg.native_body_turn='false';cfg.turn_in_place='invalid';assert(not pcall(t.configure,cfg));assert(t.settings.turn_in_place)
+
+cfg.turn_in_place='true';cfg.head_look_binding=nil;t.configure(cfg);assert(not t.settings.head_look_binding)
+cfg.head_look_binding='true';t.configure(cfg);assert(t.settings.head_look_binding)
+cfg.head_look_binding='bad';assert(not pcall(t.configure,cfg));assert(t.settings.head_look_binding)

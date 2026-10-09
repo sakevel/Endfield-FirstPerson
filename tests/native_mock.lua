@@ -26,10 +26,37 @@ function Quaternion.Euler(x,y,z)
     return q(0,math.sin(y),0,math.cos(y))*q(math.sin(x),0,0,math.cos(x))*q(0,0,math.sin(z),math.cos(z))
 end
 Quaternion.identity=q(0,0,0,1)
+local function mul(a,b)return v(a.x*b.x,a.y*b.y,a.z*b.z)end
+local function div(a,b)return v(a.x/b.x,a.y/b.y,a.z/b.z)end
 local function transform()
-    local t={position=v(0,0,0),rotation=Quaternion.identity,eulerAngles=v(0,0,0),localScale=v(1,1,1)}
-    function t:SetParent(parent,_) self.parent=parent end
-    function t:SetPositionAndRotation(pos,rot) self.position=pos;self.rotation=rot;self.eulerAngles=rot.eulerAngles end
+    local t={_localPosition=v(0,0,0),_localRotation=Quaternion.identity,localScale=v(1,1,1)}
+    setmetatable(t,{
+        __index=function(self,k)
+            local parent=rawget(self,'parent')
+            if k=='localRotation' then return self._localRotation end
+            if k=='rotation' then return parent and parent.rotation*self._localRotation or self._localRotation end
+            if k=='eulerAngles' then return self.rotation.eulerAngles end
+            if k=='lossyScale' then return parent and mul(parent.lossyScale,self.localScale) or self.localScale end
+            if k=='localPosition' then return self._localPosition end
+            if k=='position' then return parent and parent.position+parent.rotation*mul(parent.lossyScale,self._localPosition) or self._localPosition end
+        end,
+        __newindex=function(self,k,value)
+            local parent=rawget(self,'parent')
+            if k=='localRotation' then
+                if (self==head and failHeadRestore) or (self==neck and failNeckRestore) then error('injected head restoration failure')end
+                self._localRotation=value
+            elseif k=='rotation' then self._localRotation=parent and Quaternion.Inverse(parent.rotation)*value or value
+            elseif k=='eulerAngles' then self.rotation=Quaternion.Euler(value.x,value.y,value.z)
+            elseif k=='localPosition' then self._localPosition=value
+            elseif k=='position' then self._localPosition=parent and div(Quaternion.Inverse(parent.rotation)*(value-parent.position),parent.lossyScale) or value
+            else rawset(self,k,value) end
+        end})
+    function t:SetParent(parent,worldStays)
+        local pos,rot=self.position,self.rotation
+        self.parent=parent
+        if worldStays then self.position=pos;self.rotation=rot end
+    end
+    function t:SetPositionAndRotation(pos,rot) self.position=pos;self.rotation=rot end
     function t:Equals(other) return self==other or (other==nil and self.destroyed) end
     function t:IsChildOf(parent) return self==parent or (self.parent and self.parent:IsChildOf(parent)) or false end
     return t
@@ -93,7 +120,7 @@ CS={UnityEngine={Vector3=Vector3,Quaternion=Quaternion,Vector2=Vector2,
     Vector4=function(x,y,z,w)return {x=x,y=y,z=z,w=w}end,
     Color=function(r,g,b,a)return {r=r,g=g,b=b,a=a}end,
     GameObject=go,Canvas='Canvas',RenderMode={ScreenSpaceOverlay=1},RectTransform='RectTransform',Renderer='Renderer',
-    UI={RawImage='RawImage'},HumanBodyBones={Head=1},Application={isFocused=true},Time={frameCount=0},
+    UI={RawImage='RawImage'},HumanBodyBones={Head=1,Neck=2},Application={isFocused=true},Time={frameCount=0},
     Screen={width=1920,height=1080},Texture2D=Texture2D,TextureFormat={RGBA32=1},TextureWrapMode={Clamp=1},FilterMode={Bilinear=1},
     Rendering={ShadowCastingMode={Off=0,On=1,ShadowsOnly=3},Volume='Volume',VolumeProfile='VolumeProfile'},
     ScriptableObject={CreateInstance=function(type)assert(type=='VolumeProfile');return setmetatable(component({}),{__index=Profile})end},
@@ -119,7 +146,8 @@ local mgr={mainCamera=cam,virtualCamsRoot=transform(),curActiveController=level,
 function mgr:IsCommonTempControllerActive()return false end
 function mgr:GetMainLevelCameraController()return level end
 function mgr:GetMainCameraVolumeLayerMask()return 2^8 end
-head=transform();head.position=v(0,1.6,0)
+neck=transform();neck.name='Bip001_Neck';neck.position=v(0,1.4,0)
+head=transform();head.position=v(0,1.6,0);head:SetParent(neck,true)
 render1=component({name='body',transform=transform(),shadowCastingMode=1});render2=component({name='hair',transform=transform(),shadowCastingMode=0})
 local model=transform();function model:GetComponentsInChildren(type,include)assert(type=='Renderer' and include);return {[0]=render1,[1]=render2,Length=2}end
 local body=transform()
@@ -127,8 +155,75 @@ rootCom=setmetatable({transform=body,model=model,replicatedCharInfo={templateId=
     if k=='rotation' then t.transform.rotation=value;t.transform.eulerAngles=value.eulerAngles;turns=(turns or 0)+1 else rawset(t,k,value)end
 end})
 character={alive=true,inCinematic=false,rootCom=rootCom,
-    animatorCom={animator=component({isHuman=true,GetBoneTransform=function(_,bone)assert(bone==1);return head end})},
+    animatorCom={animator=component({isHuman=true,GetBoneTransform=function(_,bone)assert(bone==1 or bone==2);return bone==1 and head or (not missingNeck and neck or nil) end})},
     movementComponent={enabled=true,isClimbing=false,inSkillAir=false},IsValid=function()return true end}
+rotator={currentHandleId=0,isRotating=false,lockToCamera=false}
+function rotator:RotateTo()error('rotation-only path forbidden in animated mode')end
+function rotator:StopRotate()error('must not stop foreign rotation requests')end
+character.rotateCom=rotator
+character.movementComponent.isInAir=false
+character.movementComponent.input={moveVector=v(0,0,0)}
+function character.movementComponent:IsInStrafe()return strafe==true end
+local modifierType='OverridableValue<RootMotionModifier>'
+function newModifierStack()
+    -- Indexers must be zero based like C# List<T>, not Lua's contiguous array.
+    local storage={}
+    local nodes=setmetatable({}, {__index=function(_,k)if k=='Count' then return #storage end;return storage[k+1] end})
+    local stack={m_overrideValues=nodes,base={scale=1,disableCliffCheck=false}}
+    function stack:GetType()return modifierType end
+    function stack:GetValue()return #storage>0 and storage[#storage].value or self.base end
+    function stack:SetOverride(id,value)
+        for _,node in ipairs(storage)do if node.id==id then node.value=value;return end end
+        storage[#storage+1]={id=id,value=value}
+    end
+    function stack:RemoveOverride(id)
+        if failModifierRemove then error('injected modifier cleanup failure')end
+        for i,node in ipairs(storage)do if node.id==id then table.remove(storage,i);return end end
+    end
+    return stack
+end
+character.movementComponent.rootMotionModifier=newModifierStack()
+function character.movementComponent:AddRootMotionModifier(id,scale,disableCliffCheck)
+    self.rootMotionModifier:SetOverride(id,{scale=scale,disableCliffCheck=disableCliffCheck})
+    if failModifierAdd then error('injected partial modifier install failure')end
+end
+local function newTurnAction()
+    local a={isActive=false,enabled=true,m_remainingCd=0}
+    function a:Init(pivot,data) self.pivot=pivot;self.data=data end
+    function a:_CalcExpectedGait(vec)assert(vec==character.movementComponent.input.moveVector);return 'Walk' end
+    function a:_GetDuration(gait)assert(gait=='Walk');return self.data.duration end
+    function a:_GetCurveTotalAngle()return self.data.total end
+    function a:_GetRotationCurve()return self.data.curve end
+    function a:_Start(delta,direction,gait,strict)
+        if failNativeTurn then error('native animation API unavailable')end
+        assert(not strict and gait=='Walk' and self.pivot.m_turnStartMove==self)
+        self.delta=delta;self.direction=direction;self.startYaw=rootCom.transform.eulerAngles.y;self.time=0
+        self.isActive=true;nativeRequests=(nativeRequests or 0)+1;animationStarts=(animationStarts or 0)+1
+    end
+    function a:Stop()
+        if failNativeStop then error('injected native stop failure')end
+        if self.isActive then nativeStops=(nativeStops or 0)+1 end
+        self.isActive=false
+    end
+    return a
+end
+pivot={m_pivotData={duration=.4,total=90,curve=true},m_turnStartMove=newTurnAction(),isPivoting=false}
+function pivot:_CanStartPivotOrTurnStart()return not blockNativeGate end
+function pivot:_IsTurnStartDisabled()return disableTurnStart==true end
+character.charPivotCom=pivot
+CS.Beyond={Gameplay={View={Animation={CharacterPivotComponent='CharacterPivotComponent',CharacterTurnStartMove=newTurnAction}}}}
+xlua={private_accessible=function(t)assert(t=='CharacterPivotComponent' or t==newTurnAction or t==modifierType);privateAccessCount=(privateAccessCount or 0)+1 end}
+function nativeTurnTick(dt)
+    local a=pivot.m_turnStartMove
+    if not a.isActive or freezeNativeTurn then return end
+    a.time=a.time+dt;local progress=math.min(1,a.time/a.data.duration)
+    -- An asynchronous native curve fixture, not an actual client animation test.
+    local body=rootCom.transform
+    body.rotation=Quaternion.Euler(0,a.startYaw+a.delta*(progress*progress*(3-2*progress)),0)
+    body.eulerAngles=body.rotation.eulerAngles
+    body.position=body.position+v(character.movementComponent.rootMotionModifier:GetValue().scale*.3*dt,0,platformMotion and dt or 0)
+    if progress==1 then a.isActive=false end
+end
 GameInstance={playerController={mainCharacter=character,blockPlayerInput=false,castingNormalAttack=false},cameraManager=mgr,isInGameplay=true}
 InputManager={cursorVisible=false};InputManagerInst={GetAxis=function(_,name)return name=='Mouse X' and (mouseX or 0) or (mouseY or 0) end}
 DeviceInfo={usingKeyboard=true,usingController=false};LuaSystemManager={factory={inTopView=false}}
@@ -142,7 +237,7 @@ local api={get=function(id)assert(id=='first-person');return config end,
     subscribe=function(id,fn)assert(id=='first-person');subscribe=fn;return function()subscribe=nil end end,
     report=function(id,event)assert(id=='first-person');events=events or {};events[#events+1]=event;return true end}
 function change(key,value)config[key]=value;if subscribe then subscribe(key,value,config,false)end end
-function runGroup(group,dt)if group=='Tick' then CS.UnityEngine.Time.frameCount=CS.UnityEngine.Time.frameCount+1 end;local list={};for k,row in pairs(updates)do if row.group==group then list[#list+1]=row.fn end end;for _,fn in ipairs(list)do fn(dt)end end
+function runGroup(group,dt)if group=='Tick' then CS.UnityEngine.Time.frameCount=CS.UnityEngine.Time.frameCount+1;nativeTurnTick(dt) end;local list={};for k,row in pairs(updates)do if row.group==group then list[#list+1]=row.fn end end;for _,fn in ipairs(list)do fn(dt)end end
 testApi=api
 LuaManagerInst={LoadLua=function(_,path)assert(path=='ZML/Api');return 'return testApi' end}
 require_ex=function()end
