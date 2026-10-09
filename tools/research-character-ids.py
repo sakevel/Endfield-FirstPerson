@@ -1,4 +1,4 @@
-"""Confirm public character template IDs against byte-verified current VFS indices."""
+"""Character template ID extraction tool."""
 import argparse,json,hashlib
 from pathlib import Path
 from research_vfs import extract

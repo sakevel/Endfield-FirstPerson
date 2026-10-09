@@ -6,7 +6,6 @@ local l=FP.lease
 approximate(l.camera.transform.position.y,1.68);approximate(l.camera.fieldOfView,85)
 assert(render1.shadowCastingMode==1 and render2.shadowCastingMode==3,'body visible, only head renderer hidden')
 approximate(head.localScale.x,.001)
--- Restore before gameplay/animation; apply only again in the render tail.
 runGroup('Tick',.016);approximate(head.localScale.x,1)
 runGroup('TailTick',.016);approximate(head.localScale.x,.001)
 change('fov','100');runGroup('Tick',1/60);runGroup('TailTick',1/60);assert(l.camera.fieldOfView==100 and FP.lease==l)
@@ -23,7 +22,6 @@ head.rotation=CS.UnityEngine.Quaternion.Euler(10,20,15)
 change('head_rotation','true');change('head_tilt','true');change('head_strength','1');runGroup('Tick',.016)
 local e=l.lastRotation.eulerAngles;approximate(e.x,10);approximate(e.y,20);approximate(e.z,15)
 change('head_tilt','false');runGroup('Tick',.016);approximate(l.lastRotation.eulerAngles.z,0)
--- Actual bone pose + head-parented camera; parent scaling must not collapse eye offset.
 local animatedRotation=head.localRotation
 local originalHeadPosition=head.position
 local animatedNeck=neck.localRotation
@@ -40,7 +38,6 @@ for _,axis in ipairs({'x','y','z'})do
     approximate(l.camera.transform.position[axis],eye[axis]);approximate(l.virtual.transform.position[axis],eye[axis])
 end
 approximate(head.localScale.x,.001)
--- Restore animation pose before native animation, then reapply once at render tail.
 runGroup('Tick',.016)
 approximate(head.localRotation.eulerAngles.x,animatedRotation.eulerAngles.x)
 approximate(neck.localRotation.eulerAngles.x,animatedNeck.eulerAngles.x)
@@ -53,7 +50,6 @@ for _,axis in ipairs({'x','y','z'})do approximate(l.lastPosition[axis],beforeEye
 change('head_look_binding','false')
 assert(FP.lease==l and l.virtual.transform.parent==l.manager.virtualCamsRoot and not l.headRotationOwned)
 approximate(head.localRotation.eulerAngles.x,animatedRotation.eulerAngles.x)
--- Never restore over a bone animation / foreign write which replaced our pose.
 change('head_look_binding','true');runGroup('Tick',.016);runGroup('TailTick',.016)
 head.localRotation=CS.UnityEngine.Quaternion.Euler(-15,12,8)
 change('head_look_binding','false');approximate(head.localRotation.eulerAngles.x,-15)
@@ -63,7 +59,6 @@ print('PASS physical head rotation, real head parenting, mounted eye arc, render
 local input={CanMoveCam=function()return true end}
 assert(FP.move(input,CS.UnityEngine.Vector2(50,0)));runGroup('Tick',.016);assert((turns or 0)>0)
 input.CanMoveCam=function()return false end;assert(not FP.move(input,CS.UnityEngine.Vector2(1,1)))
--- Native animation entry is leased, not the rotation-only interface.
 for i=1,120 do runGroup('Tick',1/60)end
 change('turn_threshold','30');change('native_body_turn','true')
 FP.yaw=FP.angle(rootCom.transform.eulerAngles.y+31)
@@ -77,7 +72,6 @@ assert(nativeRequests==requestCount and FP.turning,'native action not restarted 
 freezeNativeTurn=false
 for i=1,60 do runGroup('Tick',.016)end
 assert(not FP.turning and pivot.m_turnStartMove==originalAction and not FP.lease.stepTurn and (turns or 0)==directBefore)
--- Enabled suppression retains animated yaw without translation; never pin world position.
 local mover=character.movementComponent
 local stack=mover.rootMotionModifier
 local startPos=rootCom.transform.position
@@ -96,7 +90,6 @@ assert(l.stepTurn and not l.stepTurn.translation)
 for i=1,30 do runGroup('Tick',.016)end
 assert(rootCom.transform.position.x>startPos.x,'disabled option preserves native displacement')
 change('turn_in_place','true')
--- Collision-safe key allocation, hot reconfiguration and real input release.
 stack:SetOverride(0x5a4d4c46,{scale=.75,disableCliffCheck=true})
 FP.yaw=FP.angle(rootCom.transform.eulerAngles.y+70);runGroup('Tick',.016)
 assert(l.stepTurn.translation.id==0x5a4d4c47 and stack:GetValue().scale==0)
@@ -108,14 +101,12 @@ GameInstance.playerController.hasMoveInput=true;runGroup('Tick',.016)
 assert(not l.stepTurn and stack.m_overrideValues.Count==1,'normal movement releases translation suppression')
 GameInstance.playerController.hasMoveInput=false;FP.yaw=rootCom.transform.eulerAngles.y
 stack:RemoveOverride(0x5a4d4c46)
--- Foreign replacement of our node's value is preserved even with the same key.
 FP.yaw=FP.angle(rootCom.transform.eulerAngles.y+70);runGroup('Tick',.016)
 local id=l.stepTurn.translation.id
 stack:SetOverride(id,{scale=.5,disableCliffCheck=true})
 change('turn_in_place','false')
 assert(stack.m_overrideValues.Count==1 and stack:GetValue().scale==.5)
 stack:RemoveOverride(id);change('turn_in_place','true')
--- A changed component stack must not redirect cleanup to the foreign owner.
 FP.yaw=FP.angle(rootCom.transform.eulerAngles.y+70);runGroup('Tick',.016)
 local replacement=newModifierStack();replacement:SetOverride(id,{scale=.8,disableCliffCheck=true})
 mover.rootMotionModifier=replacement;change('turn_in_place','false')
@@ -131,11 +122,9 @@ menuOpen=false;runGroup('Tick',.016);l=assert(FP.lease)
 FP.yaw=FP.angle(rootCom.transform.eulerAngles.y+70);runGroup('Tick',.016)
 local owned=l.stepTurn.move;local foreign={isActive=true};pivot.m_turnStartMove=foreign
 freezeNativeTurn=true;runGroup('Tick',.016)
-assert(pivot.m_turnStartMove==foreign and foreign.isActive and not owned.isActive and not l.stepTurn,
-    'do not stop or overwrite foreign slot replacement')
+assert(pivot.m_turnStartMove==foreign and foreign.isActive and not owned.isActive and not l.stepTurn,'foreign slot preserved')
 pivot.m_turnStartMove=originalAction;freezeNativeTurn=false;FP.turning=false
 FP.yaw=rootCom.transform.eulerAngles.y;runGroup('Tick',.016)
--- All native gate failures must leave the original slot and movement input untouched.
 local inputVector=character.movementComponent.input.moveVector
 for _,gate in ipairs({'air','strafe','lock','rotating','moving','tag','disabled','pivot','cooldown','inactive'})do
     character.movementComponent.isInAir=gate=='air';strafe=gate=='strafe';rotator.lockToCamera=gate=='lock'
@@ -177,7 +166,7 @@ change('hide_self','true');change('show_body','false');runGroup('Tick',.016);run
 assert(render1.shadowCastingMode==3 and render2.shadowCastingMode==3);approximate(head.localScale.x,1)
 change('show_body','true');runGroup('Tick',.016);runGroup('TailTick',.016)
 assert(render1.shadowCastingMode==1 and render2.shadowCastingMode==3);approximate(head.localScale.x,.001)
-change('hide_self','true');runGroup('Tick',.016);render2.shadowCastingMode=1 -- Foreign renderer change must be preserved.
+change('hide_self','true');runGroup('Tick',.016);render2.shadowCastingMode=1
 menuOpen=true;runGroup('Tick',.016)
 assert(not FP.lease and render1.shadowCastingMode==1 and render2.shadowCastingMode==1)
 assert(l.manager.curActiveController==baseLevel and l.camera.nearClipPlane==.2 and not l.volume.enabled)
@@ -189,7 +178,6 @@ runGroup('Tick',.016);assert(not FP.lease and nextLease.manager.curActiveControl
     'preserve foreign FOV even if it coincidentally equals our last value')
 nextLease.manager.curActiveController=baseLevel
 runGroup('Tick',.016);assert(FP.lease)
--- A foreign render override with the same native level controller must not be overwritten.
 foreignOverride=true;FP.lease.brain.ActiveVirtualCamera={name='Foreign timeline'}
 runGroup('Tick',.016);assert(not FP.lease);runGroup('Tick',.016);assert(not FP.lease)
 foreignOverride=false;nextLease.brain.ActiveVirtualCamera=baseLevel.virtualCamera
@@ -201,7 +189,6 @@ change('enabled','false');assert(not FP.lease and not FP.wanted)
 FP.close(ctrl);assert(next(updates)==nil)
 assert(#errors==0,'no adapter exceptions expected')
 print('PASS production native adapter: lease/real math/FOV/heights/head tilt/native body setter/vision switch/reuse/foreign changes/cleanup retry')
--- A native pass failure must not remove the visible sensor sweep or the camera.
 config.enabled='true';config.fun_effects='true';config.endmin_scan='true'
 rootCom.replicatedCharInfo.templateId='chr_0003_endminf'
 FP.show(ctrl);pressToggle=true;failScan=true;runGroup('Tick',.016);runGroup('TailTick',.016)
@@ -209,7 +196,6 @@ local fallback=assert(FP.lease)
 assert(fallback.scanFailed and fallback.overlay.activeSelf and fallback.mask.texture==fallback.scanTexture)
 local previousY=fallback.maskRect.anchorMax.y
 runGroup('Tick',.25);assert(FP.lease==fallback and fallback.maskRect.anchorMax.y~=previousY)
--- Never overwrite a foreign bone-scale change while restoring our render mutation.
 head.localScale=CS.UnityEngine.Vector3(.8,.8,.8)
 FP.close(ctrl);assert(not FP.lease and next(updates)==nil);approximate(head.localScale.x,.8)
 for _,o in ipairs(fallback.objects) do assert(o.destroyed,'fallback resources must be reclaimed') end
@@ -217,7 +203,6 @@ assert(#errors==1 and errors[1]:find('scan_render_unavailable',1,true))
 failScan=false;head.localScale=CS.UnityEngine.Vector3(1,1,1)
 print('PASS native scan failure fallback, animated sensor projection and foreign head-scale preservation')
 
--- An unavailable experimental API must not disable FP or fall back to teleporting yaw.
 config.enabled='true';config.fun_effects='false';config.native_body_turn='true';config.turn_threshold='30'
 FP.show(ctrl);pressToggle=true;runGroup('Tick',.016)
 local failedLease=assert(FP.lease);failNativeTurn=true;FP.yaw=FP.angle(rootCom.transform.eulerAngles.y+70)
@@ -233,7 +218,6 @@ failNativeStop=false;runGroup('Tick',.016)
 assert(not beforeClose.isActive and pivot.m_turnStartMove==originalAction and not FP.lease and next(updates)==nil)
 print('PASS native animated turn action lease, curve completion, gates, no fake movement, original/foreign slot restoration and cleanup retry')
 
--- Modifier acquisition can fail after native mutation; remove our partial lease only.
 config.turn_in_place='true';FP.show(ctrl);pressToggle=true;runGroup('Tick',.016)
 local partial=assert(FP.lease);failModifierAdd=true
 FP.yaw=FP.angle(rootCom.transform.eulerAngles.y+70);runGroup('Tick',.016)
@@ -247,7 +231,6 @@ failModifierRemove=false;runGroup('Tick',.016)
 assert(not FP.lease and stack.m_overrideValues.Count==0 and pivot.m_turnStartMove==originalAction and next(updates)==nil)
 print('PASS partial modifier acquisition rollback and failed modifier cleanup retry')
 
--- Nonstandard bone axes and a changed player rig require fresh per-character calibration.
 head.rotation=CS.UnityEngine.Quaternion.Euler(0,90,20)
 config.head_look_binding='true';config.native_body_turn='false';config.turn_threshold='180'
 config.head_rotation='false';config.head_tilt='false'
@@ -268,7 +251,6 @@ approximate(head.localRotation.eulerAngles.y,originalBone.eulerAngles.y)
 assert(not bound.neckRotationOwned)
 print('PASS rig-axis calibration, safe yaw limit and retryable head-pose cleanup')
 
--- Neck cleanup failure is separately retryable, even after head restoration succeeds.
 FP.show(ctrl);pressToggle=true;runGroup('Tick',.016)
 local coupled=assert(FP.lease)
 FP.yaw=FP.angle(rootCom.transform.eulerAngles.y+40);FP.pitch=55
@@ -279,7 +261,6 @@ assert(FP.lease and FP.lease.neckRotationOwned and not FP.lease.headRotationOwne
 failNeckRestore=false;runGroup('Tick',.016)
 assert(not FP.lease and next(updates)==nil)
 approximate(neck.localRotation.eulerAngles.x,savedNeck.eulerAngles.x)
--- A foreign neck write must survive hot disabling the binding.
 FP.show(ctrl);pressToggle=true;runGroup('Tick',.016)
 FP.pitch=50;runGroup('Tick',.016);runGroup('TailTick',.016)
 neck.localRotation=CS.UnityEngine.Quaternion.Euler(8,11,3)
@@ -287,7 +268,6 @@ change('head_look_binding','false');approximate(neck.localRotation.eulerAngles.x
 FP.close(ctrl)
 print('PASS neck/head coupled pose, head spatial arc, neck restoration retry and foreign neck preservation')
 
--- Spatial preview and final pose must agree across different neck lengths and rig sources.
 config.head_look_binding='true'
 local anim=character.animatorCom.animator
 for i,height in ipairs({.08,.16,.24})do

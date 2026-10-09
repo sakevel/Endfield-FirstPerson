@@ -1,4 +1,4 @@
-"""Public loader black-box API, temporary state only, no game or install."""
+"""Loader service API tests."""
 import sys,subprocess
 from pathlib import Path
 fixture=Path(sys.argv[1]).resolve();package=Path(sys.argv[2]).resolve()

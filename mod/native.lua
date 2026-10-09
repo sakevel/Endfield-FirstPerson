@@ -62,7 +62,6 @@ function P.capture(ch)
     if not live(head) and animator.isHuman then head=animator:GetBoneTransform(U.HumanBodyBones.Head) end
     assert(live(head) and live(root.transform),'head bone unavailable')
     local neck=animator.isHuman and animator:GetBoneTransform(U.HumanBodyBones.Neck) or nil
-    -- Current extracted non-humanoid rigs explicitly have Bip001_Neck -> Bip001_Head.
     if not live(neck) and live(head.parent) and head.parent.name=='Bip001_Neck' then neck=head.parent end
     if not live(neck) or neck==head or neck==root.transform or not head:IsChildOf(neck) then neck=nil end
     local mgr=assert(GameInstance.cameraManager,'camera manager unavailable')
@@ -124,7 +123,7 @@ local function restoreHead(l)
 end
 local function sameRotation(a,b)
     local d=math.abs(a.x*b.x+a.y*b.y+a.z*b.z+a.w*b.w)
-    return math.abs(1-d)<1e-6 -- q and -q represent the same orientation.
+    return math.abs(1-d)<1e-6
 end
 local function restoreLookBone(l,prefix,bone)
     if not l[prefix..'Owned'] then return end
@@ -135,7 +134,6 @@ local function restoreLookBone(l,prefix,bone)
     l[prefix..'Owned']=false
 end
 local function restoreHeadLook(l)
-    -- Restore child-local first, then parent-local; never erase foreign bone writes.
     restoreLookBone(l,'headRotation',l.head)
     restoreLookBone(l,'neckRotation',l.neck)
 end
@@ -188,16 +186,12 @@ local function stepTypes()
     local A=CS.Beyond.Gameplay.View.Animation
     if not stepAccess then
         assert(xlua and type(xlua.private_accessible)=='function','xLua private access unavailable')
-        -- These two private members have no public direction-based animation entry.
-        -- Use names verified against this client, never fixed field offsets.
         xlua.private_accessible(typeof(A.CharacterPivotComponent))
         xlua.private_accessible(typeof(A.CharacterTurnStartMove))
         stepAccess=true
     end
     return A
 end
--- Native OverridableValue<RootMotionModifier>: only translation is scaled.
--- Allocate an unused key and retain the actual node; never clear foreign overrides.
 local modifierTypes={}
 local function modifierNodes(modifiers)
     local t=modifiers:GetType()
@@ -214,7 +208,7 @@ end
 local function suppressTurnTranslation(lease)
     local mover=lease.mover
     local modifiers=assert(mover.rootMotionModifier,'native root-motion modifier unavailable')
-    local id=0x5a4d4c46 -- ZMLF; probe collisions, do not assume a reserved global key.
+    local id=0x5a4d4c46
     while modifierNode(modifiers,id) do
         id=id+1;assert(id<0xffffffff,'native modifier key exhausted')
     end
@@ -229,7 +223,6 @@ local function restoreTurnTranslation(lease)
     local node=modifierNode(translation.owner,translation.id)
     if node and (translation.node==nil or node==translation.node) and
         node.value.scale==0 and not node.value.disableCliffCheck then
-        -- Remove from the leased owner even if the character's modifier stack changed.
         translation.owner:RemoveOverride(translation.id)
     end
     lease.translation=nil
@@ -238,8 +231,6 @@ function P.stopTurn(l)
     local lease=l.stepTurn
     if not lease then return end
     if l.character:IsValid() then
-        -- A dedicated native action gives us real ownership despite the game not
-        -- exposing a turn-start handle. Never StopPivot() or StopRotate(-1) here.
         restoreTurnTranslation(lease)
         lease.move:Stop()
         if lease.pivot.m_turnStartMove==lease.move then lease.pivot.m_turnStartMove=lease.original end
@@ -261,12 +252,10 @@ function P.turn(l,yaw,c,targetYaw)
         local lease=l.stepTurn
         if lease then
             if mover~=lease.mover or pivot~=lease.pivot or pivot.m_turnStartMove~=lease.move then
-                P.stopTurn(l);return false -- Preserve a foreign slot replacement.
+                P.stopTurn(l);return false
             end
             if not lease.move.isActive or mover.isInAir or mover:IsInStrafe() or
                 rotator.lockToCamera or GameInstance.playerController.hasMoveInput then P.stopTurn(l);return false end
-            -- Native Tick owns the animation curve and root motion. Do not update
-            -- the target each frame, double-Tick it, or rotate the root ourselves.
             return true
         end
         if mover.isInAir or mover:IsInStrafe() or rotator.lockToCamera or rotator.isRotating or
@@ -277,7 +266,6 @@ function P.turn(l,yaw,c,targetYaw)
         local data=assert(pivot.m_pivotData,'native turn animation curves unavailable')
         local move=A.CharacterTurnStartMove()
         move:Init(pivot,data);move.enabled=original.enabled
-        -- Match the native gait calculation even with zero real movement input.
         local gait=move:_CalcExpectedGait(mover.input.moveVector)
         local duration,total=move:_GetDuration(gait),move:_GetCurveTotalAngle(gait)
         assert(duration>0 and duration<10 and math.abs(total)>0.01 and move:_GetRotationCurve(gait),
@@ -285,12 +273,9 @@ function P.turn(l,yaw,c,targetYaw)
         local delta=angle(targetYaw-P.bodyYaw(l))
         if math.abs(delta)<=1 then return false end
         local direction=Q.Euler(0,targetYaw,0)*V(0,0,1)
-        -- Lease the component's action slot, not global animation settings. Its
-        -- regular Tick drives MovePipelineTurnStart + OnMockRootMotionRotation.
         l.stepTurn={pivot=pivot,original=original,move=move,mover=mover}
         if c.turn_in_place then suppressTurnTranslation(l.stepTurn) end
         pivot.m_turnStartMove=move
-        -- false selects the game's normal walking pivot / turn-start branching.
         move:_Start(delta,direction,gait,false)
         assert(move.isActive,'native animated turn-start rejected')
         reportEvent('native_step_turn_started')
@@ -300,13 +285,13 @@ function P.turn(l,yaw,c,targetYaw)
         l.nativeTurnUnavailable=true
         pcall(P.stopTurn,l)
         reportEvent('native_turn_unavailable',result)
-        return false -- No silent fallback to a rotation-only implementation.
+        return false
     end
     return result
 end
 function P.pose(l,yaw,pitch,c,dt,postAnimation)
     assert(live(l.head) and live(l.root.transform) and live(l.virtual),'camera rig destroyed')
-    restoreHeadLook(l) -- Never accumulate our last render's pose into animation.
+    restoreHeadLook(l)
     local body=l.root.transform
     local localHead=Q.Inverse(body.rotation)*(l.head.position-body.position)
     local wanted=V(c.head_translation and localHead.x or l.neutral.x,
@@ -321,8 +306,6 @@ function P.pose(l,yaw,pitch,c,dt,postAnimation)
     local rotation=baseRotation*Q.Euler(c.head_rotation and angle(e.x)*c.head_strength or 0,
         c.head_rotation and angle(e.y)*c.head_strength or 0,c.head_tilt and angle(e.z)*c.head_strength or 0)
     if c.head_look_binding then
-        -- Convert view axes through the captured rig basis (bones need not be +Z forward).
-        -- Keep a safe yaw range when the user disables/delays automatic body turning.
         local headYaw=body.eulerAngles.y+math.max(-85,math.min(85,angle(yaw-body.eulerAngles.y)))
         local aim=Q.Euler(pitch,headYaw,0)*Q.Euler(c.head_rotation and angle(e.x)*c.head_strength or 0,
             c.head_rotation and angle(e.y)*c.head_strength or 0,c.head_tilt and angle(e.z)*c.head_strength or 0)
@@ -336,8 +319,6 @@ function P.pose(l,yaw,pitch,c,dt,postAnimation)
                     c.head_rotation and angle(e.y)*c.head_strength*.6 or 0,
                     c.head_tilt and angle(e.z)*c.head_strength*.5 or 0)
             local posedNeck=neckAim*l.baseNeck
-            -- Predict the actual rigid arc in Tick; apply it through the real
-            -- parent bone in TailTick so skinning and the mounted camera agree.
             headPosition=l.neck.position+posedNeck*Q.Inverse(l.neck.rotation)*(headPosition-l.neck.position)
             if postAnimation then
                 l.neckRotationOriginal=l.neck.localRotation
@@ -350,12 +331,10 @@ function P.pose(l,yaw,pitch,c,dt,postAnimation)
         end
         if postAnimation then
             l.headRotationOriginal=l.head.localRotation
-            l.headRotationOwned=true -- retain restoration even on partial write failure
+            l.headRotationOwned=true
             l.head.rotation=posedHead
             l.headRotationApplied=l.head.localRotation
         end
-        -- Mounted eye offset rotates with the actual posed head, not just body yaw.
-        -- Reading position after posing also respects neck/rig animation translation.
         local headRotation=postAnimation and l.head.rotation or posedHead
         eye=(postAnimation and l.head.position or headPosition)+headRotation*Q.Inverse(l.baseHead)*V(0,c.eye_offset,c.forward_offset)
         if l.virtual.transform.parent~=l.head then l.virtual.transform:SetParent(l.head,true) end
@@ -382,8 +361,6 @@ local function tail(dt)
         l.actualOwned=true
         hideHeadForRender(l,M.settings)
         if M.settings.head_look_binding then
-            -- Head hiding shrinks the bone only for rendering; compensate the child's
-            -- world pose afterwards so it cannot drag the mounted eye into the neck.
             l.virtual:ForceCameraPosition(l.lastPosition,l.lastRotation)
         end
     end

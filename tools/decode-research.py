@@ -1,4 +1,4 @@
-"""Local-only client Lua envelope decoder with byte-exact roundtrip validation."""
+"""Client Lua envelope decoder."""
 import base64, struct, hashlib, json
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]

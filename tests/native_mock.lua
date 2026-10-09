@@ -1,4 +1,3 @@
--- Strict named current-client interfaces, real vector/quaternion math, no Unity render proof.
 loadstring=load
 local Vec,QVec={},{}
 local function v(x,y,z) return setmetatable({x=x,y=y,z=z},Vec) end
@@ -99,7 +98,6 @@ local function go(name)
             function c:SetInstantiatedProfile(profile)self.profileRef=profile end
             function c:Play()self.vfxEnableState=true end
             function c:Stop()self.vfxEnableState=false end
-            -- Catch accidentally using stock Unity Volume.profile on this customized client.
             setmetatable(c,{__index=function(_,k)if k=='profile' then error('profile API not in current client')end end})
         elseif type=='RectTransform' then c=self.transform
         elseif type~='Canvas' and type~='RawImage' then error('Unknown component '..tostring(type)) end
@@ -166,7 +164,6 @@ character.movementComponent.input={moveVector=v(0,0,0)}
 function character.movementComponent:IsInStrafe()return strafe==true end
 local modifierType='OverridableValue<RootMotionModifier>'
 function newModifierStack()
-    -- Indexers must be zero based like C# List<T>, not Lua's contiguous array.
     local storage={}
     local nodes=setmetatable({}, {__index=function(_,k)if k=='Count' then return #storage end;return storage[k+1] end})
     local stack={m_overrideValues=nodes,base={scale=1,disableCliffCheck=false}}
@@ -217,7 +214,6 @@ function nativeTurnTick(dt)
     local a=pivot.m_turnStartMove
     if not a.isActive or freezeNativeTurn then return end
     a.time=a.time+dt;local progress=math.min(1,a.time/a.data.duration)
-    -- An asynchronous native curve fixture, not an actual client animation test.
     local body=rootCom.transform
     body.rotation=Quaternion.Euler(0,a.startYaw+a.delta*(progress*progress*(3-2*progress)),0)
     body.eulerAngles=body.rotation.eulerAngles

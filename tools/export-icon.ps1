@@ -19,7 +19,6 @@ try {
   $graphics.PixelOffsetMode=[Drawing.Drawing2D.PixelOffsetMode]::HighQuality
   $graphics.DrawImage($src,0,0,256,256)
  } finally {$graphics.Dispose()}
- # Technical palette export only; creative geometry comes from image_gen.
  for($y=0;$y -lt 256;$y++){for($x=0;$x -lt 256;$x++){
   $c=$output.GetPixel($x,$y)
   if($c.A -eq 0){continue}

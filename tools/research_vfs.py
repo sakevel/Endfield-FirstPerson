@@ -1,4 +1,4 @@
-"""Read-only, bounded current-client resource research. Never packaged with the mod."""
+"""VFS resource research and extraction tool."""
 from pathlib import Path
 import struct, zlib, json, hashlib, re, argparse
 from Crypto.Cipher import ChaCha20

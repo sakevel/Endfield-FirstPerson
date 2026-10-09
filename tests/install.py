@@ -1,4 +1,4 @@
-"""Real generic installer forward/update/rejection/rollback tests, only in a checked temp copy."""
+"""Installer tests."""
 import sys,tempfile,subprocess,json,hashlib,shutil
 from pathlib import Path
 installer=Path(sys.argv[1]).resolve();source=Path(sys.argv[2]).resolve()
@@ -24,9 +24,8 @@ with tempfile.TemporaryDirectory(prefix='zml-firstperson-install-') as folder:
     backup=list((installRoot/'.mod-backups').iterdir());assert len(backup)==1 and hashset(backup[0])==old
     malformed=root/'malformed';shutil.copytree(changed,malformed);(malformed/'native.lua').unlink()
     stable=hashset(target);install(malformed,False);assert hashset(target)==stable
-    # Explicit reversible rollback inside this isolated root. No recursive deletion or game target.
     displaced=root/'rollback-new';restore=backup[0].resolve()
     for path in (target.resolve(),displaced.resolve(),restore):assert path.is_relative_to(root)
     target.rename(displaced);restore.rename(target)
     assert hashset(target)==old and hashset(protected)==before and hashset(state)==private
-    print('PASS real installer forward/update/exact backup/malformed rejection/rollback/private preservation in disposable copy')
+    print('PASS installer forward/update/backup/rollback')

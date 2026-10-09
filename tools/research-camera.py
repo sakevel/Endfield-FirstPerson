@@ -1,4 +1,4 @@
-"""Bounded read-only native camera dispatch audit. No runtime offsets used by mod."""
+"""Native camera dispatch audit."""
 from pathlib import Path
 import struct,re,bisect,json,hashlib
 import pefile,capstone

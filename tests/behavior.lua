@@ -31,7 +31,6 @@ allowed=false;m.frame(.016);assert(not m.lease and not current and m.wanted,'UI/
 allowed=true;m.frame(.016);assert(m.lease and count.install==2)
 local previous=m.lease;ch={id='chr_0018_dapan',yaw=180};m.frame(.016);assert(m.lease~=previous and count.install==3,'character switch recaptures own proportions')
 current='foreign';m.frame(.016);assert(m.lease and m.lease~=previous,'mock permits reinstall after foreign release')
--- Real adapter allowed() disallows entering over a foreign camera. This branch simulates it separately.
 current='foreign';allowed=false;m.frame(.016);assert(not m.lease and current=='foreign')
 allowed=true;m.frame(.016);m.toggle();assert(not m.lease and not m.wanted)
 m.toggle();failInstall=true
@@ -49,9 +48,6 @@ for _,aspect in ipairs({4/3,16/9,21/9}) do
     assert(m.eyepatchAlpha(.4,0,aspect)<a,'circular rather than vertical border')
     for x=0,100 do local v=m.eyepatchAlpha(x/100,.15,aspect);assert(v>=0 and v<=1) end
 end
-print('PASS soft circular eyepatch alpha and 4:3/16:9/21:9 aspect math')
-
--- Configurable thresholds, old saved configs, and asynchronous native completion.
 local cfg={};for k,v in pairs(defaults) do cfg[k]=v end
 local body={id='test',yaw=0};local request,stops,requests,direct= nil,0,0,0
 local port={};for k,v in pairs(P) do port[k]=v end
@@ -85,7 +81,7 @@ cfg.native_body_turn='false';t.configure(cfg);assert(not request and stops==3,'h
 t.frame(.016);assert(direct>previous)
 for i=1,60 do t.frame(.016)end
 cfg.native_body_turn='true';t.configure(cfg);t.yaw=t.angle(body.yaw+50);t.frame(.016)
-t.toggle();assert(not t.lease,'lease release on disable') -- production adapter cancels the handle in release().
+t.toggle();assert(not t.lease,'lease release on disable')
 for _,bad in ipairs({'-1','181','nan','not-a-number'}) do
     cfg.turn_threshold=bad;assert(not pcall(t.configure,cfg));assert(t.settings.turn_threshold==30,'invalid threshold remains atomic')
 end

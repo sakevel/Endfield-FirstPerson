@@ -1,4 +1,4 @@
-"""Current v29 metadata names/signatures only; no RVA or fixed runtime offsets."""
+"""Metadata parser and inspection tool."""
 import struct, json, re, argparse, hashlib
 from pathlib import Path
 p=Path(r'D:\Game\Hypergryph Launcher\games\Endfield Game\Endfield_Data\il2cpp_data\Metadata\global-metadata.dat')
