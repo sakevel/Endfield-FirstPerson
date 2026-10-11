@@ -234,6 +234,9 @@ local api={get=function(id)assert(id=='first-person');return config end,
     report=function(id,event)assert(id=='first-person');events=events or {};events[#events+1]=event;return true end}
 function change(key,value)config[key]=value;if subscribe then subscribe(key,value,config,false)end end
 function runGroup(group,dt)if group=='Tick' then CS.UnityEngine.Time.frameCount=CS.UnityEngine.Time.frameCount+1;nativeTurnTick(dt) end;local list={};for k,row in pairs(updates)do if row.group==group then list[#list+1]=row.fn end end;for _,fn in ipairs(list)do fn(dt)end end
+runtimeActive=true
+api.is_enabled=function()return runtimeActive end
+api.register_lifecycle=function(id,h)assert(id=='first-person' and not runtimeLifecycle);runtimeLifecycle=h end
 testApi=api
 LuaManagerInst={LoadLua=function(_,path)assert(path=='ZML/Api');return 'return testApi' end}
 require_ex=function()end

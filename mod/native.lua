@@ -527,6 +527,7 @@ end
 function M.show(ctrl)
     if owner and owner~=ctrl then M.hide(owner) end
     owner=ctrl;detach()
+    if api.is_enabled and not api.is_enabled(ID) then return end
     local ok,err=pcall(function()
         ensureKeys()
         M.configure(assert(api.get(ID)))
@@ -560,6 +561,16 @@ function M.move(ctrl,delta)
     local ok,result=pcall(M.look,x,y)
     if not ok then M.fault(result);return false end
     return result
+end
+if api.register_lifecycle then
+    api.register_lifecycle(ID,{
+        prepare=function(on) return not on or not M.lease or not M.lease.releasing,'视角仍在恢复，请稍候' end,
+        changed=function(on)
+            local ctrl=owner
+            if on then if ctrl then M.show(ctrl) end
+            else M.wanted=false;if ctrl then M.hide(ctrl);owner=ctrl end;M.release();cleanupRetry() end
+        end
+    })
 end
 _G.ZMLFirstPerson=M
 return M

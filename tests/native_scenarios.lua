@@ -291,3 +291,15 @@ for i,height in ipairs({.08,.16,.24})do
 end
 anim.isHuman=true;character.characterAnimCom=nil
 print('PASS 8/16/24 cm neck/head chains, actual spatial displacement, preview/final agreement and explicit nonhumanoid neck fallback')
+
+config.enabled='true'
+for i=1,5 do
+    runtimeActive=false;FP.show(ctrl);runGroup('Tick',.016)
+    assert(not FP.lease and next(updates)==nil,'inactive show cannot claim camera/head')
+    runtimeActive=true;assert(runtimeLifecycle.prepare(true));runtimeLifecycle.changed(true)
+    pressToggle=true;runGroup('Tick',.016);runGroup('TailTick',.016);assert(FP.lease)
+    runtimeActive=false;runtimeLifecycle.changed(false)
+    assert(not FP.lease and next(updates)==nil,'deactivation restores camera/head and update callbacks')
+end
+FP.close(ctrl)
+print('PASS first-person resident lifecycle: inactive-first show, five activation/restore cycles')
